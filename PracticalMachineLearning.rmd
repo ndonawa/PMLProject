@@ -1,0 +1,94 @@
+---
+title: "Course8Project"
+author: "Nevon Donawa"
+date: "October 27, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+The purpose of the project is to build an algorithm which predict the manner in which exercises were done. We will test two prdiction methods: Tree Classification and Random Forest. First we load and explore the data.
+
+```{r}
+library(AppliedPredictiveModeling)
+library(caret)
+library(ElemStatLearn)
+library(pgmm)
+library(rpart)
+library(gbm)
+library(lubridate)
+library(forecast)
+library(e1071)
+library(elasticnet)
+library(dplyr)
+library(rattle)
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+
+##Explore Data - Identify NAs
+dim(training)
+summary(training)
+nrows = nrow(training)
+ncomplete = sum(complete.cases(training))
+ncomplete / nrows ## Only 2% of the rows have complete data. 
+```
+First glance shows there are variables with 19622 observations. How many observation points are NAs / blank values. For accuracy purposes we remove this portion of the data from the model.
+```{r}
+##Find columns with NAs and remove
+count_NA <- sapply(testing, function(y) sum((is.na(y))))
+NA_values <- count_NA[count_NA == 20]
+var_remove <- names(NA_values)
+
+cleanTraining <-training[,!(names(training) %in% var_remove)]
+cleanTesting <- testing[,!(names(training) %in% var_remove)]
+dim(cleanTraining)
+
+```
+We can see that we are now down to roughly a third of the variables after removing NAs, and variables which hold now prediction weight (e.g name).After scrubbing the data we will create training set to train the model, testing set for predictions, and a validation set for cross validation purposes to test the accuracy.
+```{r}
+## Validation Set 
+set.seed(1021)
+tsTraining <- createDataPartition(y = cleanTraining$classe, 
+                                  p =.7,
+                                  list = FALSE)
+validationTraining <- cleanTraining[tsTraining, ]
+validationTesting <- cleanTraining[-tsTraining, ]
+```
+
+First prediction method will be using prediction trees.
+```{r}
+##Train Model with prediction Trees
+trControl <- trainControl(method = "cv", number =5)
+modFit <- train(classe ~., method = "rpart", data = cleanTraining, trControl = trControl)
+print(modFit$finalModel)
+plot(modFit$finalModel, uniform = TRUE,
+     main ="Classification Tree")
+text(modFit$finalModel, use.n = TRUE, all = TRUE, cex=.8)
+##Improve Plot
+fancyRpartPlot(modFit$finalModel)
+
+##Predict New Values
+pred1 <- predict(modFit, newdata = validationTesting)
+matrix <- confusionMatrix(validationTesting$classe, pred1)
+matrix$overall[1]
+```
+Our first method produced poor results with only 49% accuracy. We'll then use random forest as a second model.
+```{r}
+##Train Model with Random Forests
+modFit1 <- train(classe~., data = cleanTraining, method = "rf", trControl = trControl, verbose = FALSE)
+print(modFit1)
+plot(modFit1, main = "Model Accuracy ~ Predictors")
+##Predict new values
+pred2 <- predict(modFit1, newdata = validationTesting)
+matrix1 <- confusionMatrix(validationTesting$classe, pred2)
+matrix1$overall[1]
+
+##Model Error
+plot(modFit1$finalModel, main = "Random Forest Error ~ Tree Number")
+```
+Our random forest model shows that the most optimal amount of variables is 27 and produces and accuracy of 99.4%. We can use this strong accuracy to predict the outcomes of classes on our testing set.
+```{r}
+##Final Prediction
+pred3 <- predict(modFit1, newdata = cleanTesting)
+pred3
